@@ -50,7 +50,7 @@ contract OddNiOverallTest is Test{
         vm.startPrank(tester); 
         OBA.registerAsMember();
         vm.expectRevert(OddNiBank.AlreadyRegistered.selector);
-        OBA.registerAsMember(); // This call should fail and revert with NotMember
+        OBA.registerAsMember(); // This call should fail and revert with AlreadyRegistered
         vm.stopPrank();
     }
 
@@ -64,6 +64,7 @@ contract OddNiOverallTest is Test{
 
     function testForCustomReentrancyLock() public{
         // The internal Auditor has tested this function. TRUST ME.
+
     }
 
     function testForAccidentalETHSend() public{

